@@ -89,7 +89,7 @@ def compute_lambda(N):
     lam[0] = mp.mpf('1')
     for n in range(1, N + 1):
         lam[n] = -lam[n - 1] / n
-    print(lam)
+
     return lam
 
 def make_errors_one(N, M=1000, zmax=20):
@@ -197,9 +197,11 @@ def make_combined_error_plot(N=100, M=1000, zmax=20):
     two_ns, two_errs = make_errors_two(N, M=M, zmax=zmax)
     three_ns, three_errs = make_errors_three(N, M=M, zmax=zmax)
 
-    r_one = mp.tanh(mp.pi / 2)
+    r_one_base = mp.tanh(mp.pi / 2)
+    r_one = r_one_base ** 2
     phi = (1 + mp.sqrt(5)) / 2
-    r_two = 1 / phi
+    r_two_base = 1 / phi
+    r_two = r_two_base ** 2
     A = fit_prefactor_fixed_rate(one_ns, one_errs, r_one, tail_count=5)
     B = fit_prefactor_fixed_rate(two_ns, two_errs, r_two, tail_count=5)
     one_fit_errs = [A * (r_one ** n) for n in one_ns]
@@ -212,21 +214,28 @@ def make_combined_error_plot(N=100, M=1000, zmax=20):
     one_fit_errs_f = [float(e) for e in one_fit_errs]
     two_fit_errs_f = [float(e) for e in two_fit_errs]
 
-    plt.figure(dpi=300)
-    plt.semilogy(one_ns, one_errs_f, 'b-', label='Strip Transform (mp)')
-    plt.semilogy(two_ns, two_errs_f, 'g-', label='Legendre Expansion (mp)')
-    plt.semilogy(three_ns, three_errs_f, 'r-', label='Log Expansion (mp)')
-    plt.semilogy(one_ns, one_fit_errs_f, 'b--',
-                 label='Fit: A*(tanh(pi/2))^N')
-    plt.semilogy(two_ns, two_fit_errs_f, 'g--',
-                 label='Fit: B*(1/phi)^N')
+    fig = plt.figure(dpi=300, figsize=(4.5, 4.8))
+    plt.semilogy(one_ns, one_errs_f, 'b-', label='Strip Transform')
+    plt.semilogy(two_ns, two_errs_f, 'g-', label='Legendre Expansion')
+    plt.semilogy(three_ns, three_errs_f, 'r-', label='Log Expansion')
+    plt.semilogy(one_ns, one_fit_errs_f, '--', color='aqua',
+                 label=r'Fit: $A\,\tanh(\pi/2)^{2N}$')
+    plt.semilogy(two_ns, two_fit_errs_f, '--', color='lime',
+                 label=r'Fit: $B\,(1/\varphi)^{2N}$')
 
     plt.ylim(bottom=1e-16)
-    plt.xlabel('Expansion N')
-    plt.ylabel('L_infty Error')
+    plt.xlabel(r'Number of Terms $N$')
+    plt.ylabel(r'$L_\infty$ error')
     plt.title(f'Max Error for All Expansions (mp.dps={MP_DPS})')
-    plt.legend()
-    plt.show()
+    plt.legend(
+        loc='upper center',
+        bbox_to_anchor=(0.5, -0.33),
+        ncol=3,
+        frameon=False,
+        fontsize=8
+    )
+    plt.subplots_adjust(bottom=0.42)
+    fig.savefig("trip_plot.png", dpi=fig.dpi, bbox_inches='tight')
 
 if __name__ == "__main__":
     make_combined_error_plot(N=40, M=1000, zmax=20)
