@@ -180,20 +180,46 @@ def make_errors_three(N, M=1000, zmax=20):
 
     return ns, errs
 
+def fit_prefactor_fixed_rate(ns, errs, rate, tail_count=5):
+    """Least-squares fit for C in errs[N] ~ C * rate**N over the last tail_count points."""
+    use_ns = ns[-tail_count:]
+    use_errs = errs[-tail_count:]
+    num = mp.mpf('0')
+    den = mp.mpf('0')
+    for n, e in zip(use_ns, use_errs):
+        rn = rate ** n
+        num += e * rn
+        den += rn * rn
+    return num / den if den != 0 else mp.mpf('0')
+
 def make_combined_error_plot(N=100, M=1000, zmax=20):
     one_ns, one_errs = make_errors_one(N, M=M, zmax=zmax)
     two_ns, two_errs = make_errors_two(N, M=M, zmax=zmax)
     three_ns, three_errs = make_errors_three(N, M=M, zmax=zmax)
 
+    r_one = mp.tanh(mp.pi / 2)
+    phi = (1 + mp.sqrt(5)) / 2
+    r_two = 1 / phi
+    A = fit_prefactor_fixed_rate(one_ns, one_errs, r_one, tail_count=5)
+    B = fit_prefactor_fixed_rate(two_ns, two_errs, r_two, tail_count=5)
+    one_fit_errs = [A * (r_one ** n) for n in one_ns]
+    two_fit_errs = [B * (r_two ** n) for n in two_ns]
+
     # Convert mp -> float for plotting (matplotlib expects float)
     one_errs_f = [float(e) for e in one_errs]
     two_errs_f = [float(e) for e in two_errs]
     three_errs_f = [float(e) for e in three_errs]
+    one_fit_errs_f = [float(e) for e in one_fit_errs]
+    two_fit_errs_f = [float(e) for e in two_fit_errs]
 
     plt.figure(dpi=300)
     plt.semilogy(one_ns, one_errs_f, 'b-', label='Strip Transform (mp)')
     plt.semilogy(two_ns, two_errs_f, 'g-', label='Legendre Expansion (mp)')
     plt.semilogy(three_ns, three_errs_f, 'r-', label='Log Expansion (mp)')
+    plt.semilogy(one_ns, one_fit_errs_f, 'b--',
+                 label='Fit: A*(tanh(pi/2))^N')
+    plt.semilogy(two_ns, two_fit_errs_f, 'g--',
+                 label='Fit: B*(1/phi)^N')
 
     plt.ylim(bottom=1e-16)
     plt.xlabel('Expansion N')
