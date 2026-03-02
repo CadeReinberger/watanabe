@@ -204,8 +204,11 @@ def make_combined_error_plot(N=100, M=1000, zmax=20):
     r_two = r_two_base ** 2
     A = fit_prefactor_fixed_rate(one_ns, one_errs, r_one, tail_count=5)
     B = fit_prefactor_fixed_rate(two_ns, two_errs, r_two, tail_count=5)
+    print(f'Computed A: {A}')
+    print(f'Computed B: {B}')
     one_fit_errs = [A * (r_one ** n) for n in one_ns]
     two_fit_errs = [B * (r_two ** n) for n in two_ns]
+    ln5_fact_curve = [(mp.log(5) ** (n + 1)) / mp.factorial(n + 1) for n in one_ns]
 
     # Convert mp -> float for plotting (matplotlib expects float)
     one_errs_f = [float(e) for e in one_errs]
@@ -213,8 +216,9 @@ def make_combined_error_plot(N=100, M=1000, zmax=20):
     three_errs_f = [float(e) for e in three_errs]
     one_fit_errs_f = [float(e) for e in one_fit_errs]
     two_fit_errs_f = [float(e) for e in two_fit_errs]
+    ln5_fact_curve_f = [float(e) for e in ln5_fact_curve]
 
-    fig = plt.figure(dpi=300, figsize=(4.5, 4.8))
+    fig = plt.figure(dpi=300, figsize=(6, 7))
     plt.semilogy(one_ns, one_errs_f, 'b-', label='Strip Transform')
     plt.semilogy(two_ns, two_errs_f, 'g-', label='Legendre Expansion')
     plt.semilogy(three_ns, three_errs_f, 'r-', label='Log Expansion')
@@ -222,19 +226,26 @@ def make_combined_error_plot(N=100, M=1000, zmax=20):
                  label=r'Fit: $A\,\tanh(\pi/2)^{2N}$')
     plt.semilogy(two_ns, two_fit_errs_f, '--', color='lime',
                  label=r'Fit: $B\,(1/\varphi)^{2N}$')
+    plt.semilogy(one_ns, ln5_fact_curve_f, '--', color='orange',
+                 label=r'$\frac{\ln(5)^{n+1}}{(n+1)!}$')
 
     plt.ylim(bottom=1e-16)
-    plt.xlabel(r'Number of Terms $N$')
-    plt.ylabel(r'$L_\infty$ error')
-    plt.title(f'Max Error for All Expansions (mp.dps={MP_DPS})')
+    plt.xlabel(r'Number of Terms $N$', fontsize=13)
+    plt.ylabel(r'$L_\infty$ error', fontsize=13)
+    plt.title(f'Max Error for All Expansions (mp.dps={MP_DPS})', fontsize=15)
+    plt.xticks(fontsize=11)
+    plt.yticks(fontsize=11)
     plt.legend(
         loc='upper center',
-        bbox_to_anchor=(0.5, -0.33),
+        bbox_to_anchor=(0.5, -0.22),
         ncol=3,
-        frameon=False,
-        fontsize=8
+        frameon=True,
+        facecolor='white',
+        edgecolor='black',
+        framealpha=1.0,
+        fontsize=10
     )
-    plt.subplots_adjust(bottom=0.42)
+    plt.subplots_adjust(bottom=0.30)
     fig.savefig("trip_plot.png", dpi=fig.dpi, bbox_inches='tight')
 
 if __name__ == "__main__":
