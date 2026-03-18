@@ -15,6 +15,7 @@ See quizbowl_mle_spec.md for the full probability model.
 from __future__ import annotations
 
 import itertools
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -231,12 +232,36 @@ def fit_params(
     x0 = np.zeros(n_params)
     x0[question_world_size + player_world_size:] = -2.0
 
+    t0 = time.monotonic()
+    iteration = [0]
+
+    def _callback(xk: np.ndarray) -> None:
+        iteration[0] += 1
+        elapsed = time.monotonic() - t0
+        nll = _neg_log_likelihood(xk, question_world_size, player_world_size, gamerooms)
+        print(f"  iter {iteration[0]:4d}  nll={nll:14.4f}  elapsed={elapsed:6.1f}s", flush=True)
+
+    print(
+        f"Optimising {n_params} params "
+        f"({question_world_size}q + {player_world_size}p×2) "
+        f"over {len(gamerooms)} game rooms …",
+        flush=True,
+    )
     result = minimize(
         _neg_log_likelihood,
         x0,
         args=(question_world_size, player_world_size, gamerooms),
         method="L-BFGS-B",
+        callback=_callback,
         options={"maxiter": 2000, "ftol": 1e-12, "gtol": 1e-8},
+    )
+    elapsed_total = time.monotonic() - t0
+    print(
+        f"Done: {iteration[0]} iterations, "
+        f"final nll={result.fun:.4f}, "
+        f"success={result.success}, "
+        f"total={elapsed_total:.1f}s",
+        flush=True,
     )
 
     log_r    = result.x[:question_world_size]
