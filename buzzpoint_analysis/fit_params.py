@@ -1,5 +1,5 @@
 """
-fit_params.py — MLE parameter fitting for the quiz bowl buzz model.
+fit_params.py — MAP parameter fitting for the quiz bowl buzz model.
 
 Parameters
 ----------
@@ -7,7 +7,13 @@ r[q]    : information rate for question q  (0, ∞)
 lam[i]  : buzz rate for player i           (0, ∞)
 eta[i]  : neg probability for player i     (0, 1)
 
-Total params: question_world_size + 2 * player_world_size
+Hyperparameters (empirical Bayes, jointly optimised)
+----------------------------------------------------
+mu_r, sigma_r     : population prior for log(r[q])      ~ N(mu_r,    sigma_r^2)
+mu_lam, sigma_lam : population prior for log(lam[i])    ~ N(mu_lam,  sigma_lam^2)
+mu_eta, sigma_eta : population prior for logit(eta[i])  ~ N(mu_eta,  sigma_eta^2)
+
+Total params: question_world_size + 2 * player_world_size + 6
 
 See quizbowl_mle_spec.md for the full probability model.
 """
@@ -96,17 +102,52 @@ def _neg_log_likelihood(
     player_world_size: int,
     gamerooms: list[GameRoom],
 ) -> float:
-    """Negative log-likelihood from flat unconstrained parameter vector."""
-    # --- Unpack and transform to constrained space ---
-    log_r    = params[:question_world_size]
-    log_lam  = params[question_world_size : question_world_size + player_world_size]
-    logit_eta = params[question_world_size + player_world_size :]
+    """Negative log-posterior from flat unconstrained parameter vector.
+
+    The last 6 entries of *params* are the empirical-Bayes hyperparameters
+    (mu_r, log_sigma_r, mu_lam, log_sigma_lam, mu_eta, log_sigma_eta).
+    The MAP objective adds normal-prior penalty terms for every individual
+    parameter plus the log(sigma) normalising constants so the optimizer
+    cannot escape to sigma → ∞.
+    """
+    Q, P = question_world_size, player_world_size
+
+    # --- Unpack individual parameters ---
+    log_r     = params[:Q]
+    log_lam   = params[Q : Q + P]
+    logit_eta = params[Q + P : Q + 2 * P]
+
+    # --- Unpack hyperparameters ---
+    mu_r,      log_sigma_r   = params[Q + 2 * P],     params[Q + 2 * P + 1]
+    mu_lam,    log_sigma_lam = params[Q + 2 * P + 2], params[Q + 2 * P + 3]
+    mu_eta,    log_sigma_eta = params[Q + 2 * P + 4], params[Q + 2 * P + 5]
+
+    sigma_r   = np.exp(log_sigma_r)
+    sigma_lam = np.exp(log_sigma_lam)
+    sigma_eta = np.exp(log_sigma_eta)
 
     r   = np.exp(np.clip(log_r,   -20.0, 20.0))
     lam = np.exp(np.clip(log_lam, -20.0, 20.0))
     eta = expit(logit_eta)
 
-    total_nll = 0.0
+    # --- MAP penalty terms (negative log-prior) ---
+    # Each group contributes: sum of (x - mu)^2 / (2*sigma^2) + log(sigma)
+    # The log(sigma) term is the normalising constant of N(mu, sigma^2) and
+    # must be included so the optimiser cannot drive sigma to infinity.
+    penalty_r = (
+        np.sum((log_r - mu_r) ** 2) / (2.0 * sigma_r ** 2)
+        + Q * log_sigma_r
+    )
+    penalty_lam = (
+        np.sum((log_lam - mu_lam) ** 2) / (2.0 * sigma_lam ** 2)
+        + P * log_sigma_lam
+    )
+    penalty_eta = (
+        np.sum((logit_eta - mu_eta) ** 2) / (2.0 * sigma_eta ** 2)
+        + P * log_sigma_eta
+    )
+
+    total_nll = penalty_r + penalty_lam + penalty_eta
 
     for room in gamerooms:
         all_players = list(room.team_a | room.team_b)
@@ -201,9 +242,9 @@ def fit_params(
     question_world_size: int,
     player_world_size: int,
     gamerooms: list[GameRoom],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """
-    Fit quiz bowl model parameters via MLE.
+    Fit quiz bowl model parameters via joint MAP with empirical Bayes.
 
     Parameters
     ----------
@@ -221,16 +262,25 @@ def fit_params(
     r   : ndarray shape (question_world_size,)  — fitted information rates
     lam : ndarray shape (player_world_size,)    — fitted buzz rates
     eta : ndarray shape (player_world_size,)    — fitted neg probabilities
+    hyperparams : dict with keys
+        'mu_r', 'sigma_r'     — fitted prior for log(r[q])
+        'mu_lam', 'sigma_lam' — fitted prior for log(lam[i])
+        'mu_eta', 'sigma_eta' — fitted prior for logit(eta[i])
     """
-    n_params = question_world_size + 2 * player_world_size
+    Q, P = question_world_size, player_world_size
+    n_params = Q + 2 * P + 6
 
     # Initial values in unconstrained space:
     #   log_r = 0    → r   = 1.0
     #   log_lam = 0  → lam = 1.0
     #   logit_eta=-2 → eta ≈ 0.12
+    #   mu_r=0, mu_lam=0, mu_eta=-2  (match individual param inits)
+    #   log_sigma_r=0, log_sigma_lam=0, log_sigma_eta=0  → sigma = 1.0
 
     x0 = np.zeros(n_params)
-    x0[question_world_size + player_world_size:] = -2.0
+    x0[Q + P : Q + 2 * P] = -2.0          # logit_eta initialised to -2
+    # hyperparams: [mu_r, log_sigma_r, mu_lam, log_sigma_lam, mu_eta, log_sigma_eta]
+    x0[Q + 2 * P + 4] = -2.0              # mu_eta = -2
 
     t0 = time.monotonic()
     iteration = [0]
@@ -243,14 +293,14 @@ def fit_params(
 
     print(
         f"Optimising {n_params} params "
-        f"({question_world_size}q + {player_world_size}p×2) "
+        f"({Q}q + {P}p×2 + 6 hyperparams) "
         f"over {len(gamerooms)} game rooms …",
         flush=True,
     )
     result = minimize(
         _neg_log_likelihood,
         x0,
-        args=(question_world_size, player_world_size, gamerooms),
+        args=(Q, P, gamerooms),
         method="L-BFGS-B",
         callback=_callback,
         options={"maxiter": 2000, "ftol": 1e-12, "gtol": 1e-8},
@@ -264,15 +314,28 @@ def fit_params(
         flush=True,
     )
 
-    log_r    = result.x[:question_world_size]
-    log_lam  = result.x[question_world_size : question_world_size + player_world_size]
-    logit_eta = result.x[question_world_size + player_world_size :]
+    log_r     = result.x[:Q]
+    log_lam   = result.x[Q : Q + P]
+    logit_eta = result.x[Q + P : Q + 2 * P]
+
+    mu_r,      log_sigma_r   = result.x[Q + 2 * P],     result.x[Q + 2 * P + 1]
+    mu_lam,    log_sigma_lam = result.x[Q + 2 * P + 2], result.x[Q + 2 * P + 3]
+    mu_eta,    log_sigma_eta = result.x[Q + 2 * P + 4], result.x[Q + 2 * P + 5]
 
     r   = np.exp(np.clip(log_r,   -20.0, 20.0))
     lam = np.exp(np.clip(log_lam, -20.0, 20.0))
     eta = expit(logit_eta)
 
-    return r, lam, eta
+    hyperparams = {
+        "mu_r":      float(mu_r),
+        "sigma_r":   float(np.exp(log_sigma_r)),
+        "mu_lam":    float(mu_lam),
+        "sigma_lam": float(np.exp(log_sigma_lam)),
+        "mu_eta":    float(mu_eta),
+        "sigma_eta": float(np.exp(log_sigma_eta)),
+    }
+
+    return r, lam, eta, hyperparams
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +407,7 @@ def _run_synthetic_test() -> None:
     config_a = (frozenset({0, 1, 2}), frozenset({3, 4, 5}))
     config_b = (frozenset({0, 2, 4}), frozenset({1, 3, 5}))
 
-    n_rooms = 5_000
+    n_rooms = 300
     gamerooms: list[GameRoom] = []
     for i in range(n_rooms):
         ta, tb = config_a if i % 2 == 0 else config_b
@@ -355,7 +418,7 @@ def _run_synthetic_test() -> None:
         gamerooms.append(room)
 
     print(f"Fitting on {n_rooms} game rooms × {Q} questions each …")
-    r_fit, lam_fit, eta_fit = fit_params(Q, P, gamerooms)
+    r_fit, lam_fit, eta_fit, hyp = fit_params(Q, P, gamerooms)
 
     # Report recovery
     print("\n--- Recovery check ---")
@@ -379,6 +442,10 @@ def _run_synthetic_test() -> None:
     eta_rmse = np.sqrt(np.mean(((eta_fit - eta_true) / eta_true) ** 2))
 
     print(f"\nRelative RMSE:  r={r_rmse:.4f}  lam={lam_rmse:.4f}  eta={eta_rmse:.4f}")
+
+    print("\n--- Fitted hyperparameters ---")
+    for k, v in hyp.items():
+        print(f"  {k:12s} = {v:.4f}")
 
     # Soft assertions
     assert r_rmse   < 0.20, f"r recovery too poor: RMSE={r_rmse:.4f}"
