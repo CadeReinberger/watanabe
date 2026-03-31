@@ -11,7 +11,7 @@ class FilmParams:
     h0: float = 0.4              # initial film thickness, cm
     v_web: float = 0.01          # web velocity, cm/s
     beta: float = field(default_factory=lambda: np.radians(45))  # radians
-    L: float = 2.0               # domain length, cm
+    L: float = 3.0               # domain length, cm
     v_evap: float = field(init=False)
 
     def __post_init__(self):
@@ -132,6 +132,40 @@ def plot_streamplot(x_fine, u_x_bar_1d, params):
 
     fig, ax = plt.subplots(figsize=(6, 8))
     pcm = ax.pcolormesh(X, Y, speed, cmap='viridis', shading='auto')
+
+    # --- constant web-velocity field [v_web*sin(beta), -v_web*cos(beta)] ---
+    d_x = p.v_web * np.sin(p.beta)
+    d_y = -p.v_web * np.cos(p.beta)
+    mag = np.hypot(d_x, d_y)
+    ux_w, uy_w = d_x / mag, d_y / mag   # unit direction
+    perp_x, perp_y = -uy_w, ux_w        # perpendicular (for line spacing)
+
+    x_min, x_max = 0, p.L
+    y_min, y_max = -2 * p.L, 2 * p.L
+    diag = np.hypot(x_max - x_min, y_max - y_min)
+    cx, cy = (x_min + x_max) / 2, (y_min + y_max) / 2
+    t_line = np.linspace(-2 * diag, 2 * diag, 2000)
+    arrow_len = 0.12 * p.L
+
+    for offset in np.linspace(-diag, diag, 15):
+        x0 = cx + offset * perp_x
+        y0 = cy + offset * perp_y
+        xs = x0 + t_line * ux_w
+        ys = y0 + t_line * uy_w
+        in_box = (xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)
+        if not in_box.any():
+            continue
+        xs_c, ys_c = xs[in_box], ys[in_box]
+        ax.plot(xs_c, ys_c, color='white', linestyle='--', linewidth=1.0,
+                alpha=0.7, zorder=1)
+        mid = len(xs_c) // 2
+        ax.annotate('',
+                    xy=(xs_c[mid] + ux_w * arrow_len,
+                        ys_c[mid] + uy_w * arrow_len),
+                    xytext=(xs_c[mid], ys_c[mid]),
+                    arrowprops=dict(arrowstyle='->', color='white', lw=1.2),
+                    zorder=1)
+
     ax.streamplot(x_grid, y_grid, U_x, U_y, color='white', linewidth=0.8,
                   arrowsize=1.0, density=1.5)
     fig.colorbar(pcm, ax=ax, label="Speed (cm/s)")
