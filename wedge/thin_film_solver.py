@@ -1,0 +1,164 @@
+from dataclasses import dataclass, field
+import numpy as np
+from scipy.integrate import solve_bvp
+import matplotlib.pyplot as plt
+
+
+@dataclass
+class FilmParams:
+    mu: float = 0.00386          # viscosity, poise = g/(cm·s)
+    gamma: float = 20.14         # surface tension, dyn/cm = g/s²
+    h0: float = 0.4              # initial film thickness, cm
+    v_web: float = 0.01          # web velocity, cm/s
+    beta: float = field(default_factory=lambda: np.radians(45))  # radians
+    L: float = 2.0               # domain length, cm
+    v_evap: float = field(init=False)
+
+    def __post_init__(self):
+        self.v_evap = self.h0 * np.sin(self.beta) * self.v_web / (2 * self.L)
+
+
+def ode_system(x, y, params):
+    p = params
+    coeff = 3 * p.mu / p.gamma
+    y0, y1, y2, y3 = y
+    h_safe = np.where(np.abs(y0) > 1e-12, y0, 1e-12)
+    dy3 = (-y1 * y3 - coeff * (p.v_evap + p.v_web * np.sin(p.beta) * y1)) / h_safe
+    return np.vstack([y1, y2, y3, dy3])
+
+
+def boundary_conditions(ya, yb, params):
+    p = params
+    bc3 = -p.h0 / (2 * p.L)
+    bc4 = -3 * p.mu * p.v_web * np.sin(p.beta) / (2 * p.gamma * p.h0**2) 
+    return np.array([
+        ya[0] - p.h0,   # h(0) = h0
+        yb[0],           # h(L) = 0
+        yb[1] - bc3,     # h'(L) = -h0/(2L)
+        ya[3] - bc4,     # h'''(0) = bc4
+    ])
+
+
+def solve_bvp_problem(params):
+    p = params
+    eps = 1e-6 * p.L
+    x_mesh = np.linspace(0, p.L - eps, 500)
+
+    # Initial guess: quadratic profile satisfying BCs 1, 2, 3
+    y_guess = np.zeros((4, x_mesh.size))
+    y_guess[0] = p.h0 * (x_mesh**2 / (2 * p.L**2) - 3 * x_mesh / (2 * p.L) + 1)
+    y_guess[1] = p.h0 * (x_mesh / p.L**2 - 3 / (2 * p.L))
+    y_guess[2] = p.h0 / p.L**2
+    y_guess[3] = 0.0
+
+    ode_fn = lambda x, y: ode_system(x, y, params)
+    bc_fn = lambda ya, yb: boundary_conditions(ya, yb, params)
+
+    # Step 1: coarse solve to get a good initial guess
+    sol = solve_bvp(ode_fn, bc_fn, x_mesh, y_guess, tol=1e-3, max_nodes=50000)
+    if not sol.success:
+        print(f"WARNING: coarse solve_bvp did not converge: {sol.message}")
+
+    # Step 2: refine from coarse solution
+    # Note: h''''∝1/h diverges as h→0 at x=L, so tight tolerances require
+    # exponentially many nodes there. tol=1e-3 is adequate for plotting.
+    sol2 = solve_bvp(ode_fn, bc_fn, sol.x, sol.y, tol=1e-5, max_nodes=200000)
+    if sol2.success:
+        sol = sol2
+        print("Refined solve succeeded.")
+    else:
+        print(f"Note: refined solve did not converge (h→0 singularity at x=L); "
+              f"using coarse solution (tol=1e-3, {sol.x.size} nodes).")
+
+    x_fine = np.linspace(0, p.L - eps, 2000)
+    y_fine = sol.sol(x_fine)
+    h_vals = y_fine[0]
+    h_prime = y_fine[1]
+    h_pprime = y_fine[2]
+    h_tprime = y_fine[3]
+
+    return x_fine, h_vals, h_prime, h_pprime, h_tprime, sol
+
+
+def plot_film_thickness(x, h, params):
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(x, h, lw=2)
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("h (cm)")
+    ax.set_title("Film Thickness Profile")
+    fig.savefig("plot1_film_thickness.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print("Saved plot1_film_thickness.png")
+
+
+def plot_pressure(x, h_tprime, params):
+    P = -params.gamma * h_tprime
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(x, P, lw=2, color='tab:orange')
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("P (dyn/cm²)")
+    ax.set_title("Pressure Distribution")
+    fig.savefig("plot2_pressure.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print("Saved plot2_pressure.png")
+
+
+def plot_x_velocity(x, u_x_bar, params):
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(x, u_x_bar, lw=2, color='tab:green')
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("ū_x (cm/s)")
+    ax.set_title("Depth-Averaged x-Velocity")
+    fig.savefig("plot3_x_velocity.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print("Saved plot3_x_velocity.png")
+
+
+def plot_streamplot(x_fine, u_x_bar_1d, params):
+    p = params
+    eps = 1e-8 * p.L
+    nx, ny = 200, 200
+    x_grid = np.linspace(0, p.L - eps, nx)
+    y_grid = np.linspace(-2 * p.L, 2 * p.L, ny)
+    X, Y = np.meshgrid(x_grid, y_grid)  # shape (ny, nx)
+
+    # Interpolate u_x_bar onto the grid (no y-dependence)
+    u_x_1d = np.interp(x_grid, x_fine, u_x_bar_1d)
+    U_x = np.tile(u_x_1d, (ny, 1))  # broadcast over y rows
+
+    U_y = np.full_like(U_x, -p.v_web * np.cos(p.beta))
+    speed = np.sqrt(U_x**2 + U_y**2)
+
+    fig, ax = plt.subplots(figsize=(6, 8))
+    pcm = ax.pcolormesh(X, Y, speed, cmap='viridis', shading='auto')
+    ax.streamplot(x_grid, y_grid, U_x, U_y, color='white', linewidth=0.8,
+                  arrowsize=1.0, density=1.5)
+    fig.colorbar(pcm, ax=ax, label="Speed (cm/s)")
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("y (cm)")
+    ax.set_title("Velocity Field Streamlines")
+    ax.set_aspect('equal')
+    fig.savefig("plot4_streamplot.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print("Saved plot4_streamplot.png")
+
+
+if __name__ == "__main__":
+    plt.style.use('seaborn-v0_8-whitegrid')
+
+    params = FilmParams()
+    print(f"v_evap = {params.v_evap:.6e} cm/s")
+    print(f"beta   = {params.beta:.6f} rad ({np.degrees(params.beta):.1f} deg)")
+
+    x_fine, h_vals, h_prime, h_pprime, h_tprime, sol = solve_bvp_problem(params)
+    print(f"solve_bvp success: {sol.success}")
+
+    coeff = params.gamma / (3 * params.mu)
+    u_x_bar = params.v_web * np.sin(params.beta) + coeff * h_vals**2 * h_tprime
+
+    plot_film_thickness(x_fine, h_vals, params)
+    plot_pressure(x_fine, h_tprime, params)
+    plot_x_velocity(x_fine, u_x_bar, params)
+    plot_streamplot(x_fine, u_x_bar, params)
+
+    print("Done.")
