@@ -93,8 +93,9 @@ def plot_film_thickness(x, h, params):
 
 def plot_pressure(x, h_tprime, params):
     P = -params.gamma * h_tprime
+    mask = x <= 0.99 * params.L
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(x, P, lw=2, color='tab:orange')
+    ax.plot(x[mask], P[mask], lw=2, color='tab:orange')
     ax.set_xlabel("x (cm)")
     ax.set_ylabel("P (dyn/cm²)")
     ax.set_title("Pressure Distribution")
