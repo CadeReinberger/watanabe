@@ -80,6 +80,44 @@ def solve_bvp_problem(params):
 
     return x_fine, h_vals, h_prime, h_pprime, h_tprime, sol
 
+def compute_curvature(sol, params, x):
+    """
+    Compute path curvature from the solve_bvp solution.
+
+    Parameters
+    ----------
+    sol : scipy.integrate.solve_bvp result
+    params : dataclass with mu, gamma, v_web, beta
+    x : 1-d array of evaluation points
+    """
+    p = params
+
+    # Evaluate the BVP state vector at the requested x
+    y = sol.sol(x)          # shape (4, N)
+    h    = y[0]
+    hp   = y[1]             # h'
+    hpp  = y[2]             # h''
+    hppp = y[3]             # h'''
+
+    # h'''' straight from the ODE RHS (4th component)
+    h_safe = np.where(np.abs(h) > 1e-8, h, 1e-8)
+    hpppp = (-hp * hppp
+             - (3 * p.mu / p.gamma)
+               * (p.v_evap + p.v_web * np.sin(p.beta) * hp)) / h_safe
+
+    # Capillary contribution and its x-derivative
+    coeff = p.gamma / (2 * p.mu)
+    phi  = coeff * hppp * h**2
+    dphi = coeff * (hpppp * h**2 + 2 * hppp * hp * h)
+
+    # Velocity components
+    u = p.v_web * np.sin(p.beta) + phi
+    v = -p.v_web * np.cos(p.beta)
+
+    # Curvature: |v * u * u'| / (u^2 + v^2)^(3/2)
+    kappa = np.abs(v * u * dphi) / (u**2 + v**2)**1.5
+
+    return kappa
 
 def plot_film_thickness(x, h, params):
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -105,18 +143,19 @@ def plot_pressure(x, h_tprime, params):
     print("Saved plot2_pressure.png")
 
 
-def plot_x_velocity(x, u_x_bar, params):
+def plot_x_velocity(x, u_x_bar, params, top=False):
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(x, u_x_bar, lw=2, color='tab:green')
     ax.set_xlabel("x (cm)")
     ax.set_ylabel("ū_x (cm/s)")
-    ax.set_title("Depth-Averaged x-Velocity")
-    fig.savefig("plot3_x_velocity.png", dpi=300, bbox_inches='tight')
+    ax.set_title("Depth-Averaged x-Velocity" if not top else "x-Velocity at Top")
+    fig_name = "plot3_x_velocity.png" if not top else "plot6_top_x_velocity.png"
+    fig.savefig(fig_name, dpi=300, bbox_inches='tight')
     plt.close(fig)
-    print("Saved plot3_x_velocity.png")
+    print(fig_name)
 
 
-def plot_streamplot(x_fine, u_x_bar_1d, params):
+def plot_streamplot(x_fine, u_x_bar_1d, params, top=False):
     p = params
     eps = 1e-8 * p.L
     nx, ny = 200, 200
@@ -174,9 +213,12 @@ def plot_streamplot(x_fine, u_x_bar_1d, params):
     ax.set_ylabel("y (cm)")
     ax.set_title("Velocity Field Streamlines")
     ax.set_aspect('equal')
-    fig.savefig("plot4_streamplot.png", dpi=300, bbox_inches='tight')
+
+    fig_name = "plot4_streamplot.png" if not top else "plot5_topstreamplot.png"
+
+    fig.savefig(fig_name, dpi=300, bbox_inches='tight')
     plt.close(fig)
-    print("Saved plot4_streamplot.png")
+    print(fig_name)
 
 
 if __name__ == "__main__":
@@ -196,5 +238,11 @@ if __name__ == "__main__":
     plot_pressure(x_fine, h_tprime, params)
     plot_x_velocity(x_fine, u_x_bar, params)
     plot_streamplot(x_fine, u_x_bar, params)
+
+    # Now plot the streamplot at the top
+    coeff = params.gamma / (2 * params.mu)
+    u_x_top = params.v_web * np.sin(params.beta) + coeff * h_vals**2 * h_tprime
+    plot_streamplot(x_fine, u_x_top, params, top=True)
+    plot_x_velocity(x_fine, u_x_top, params, top=True)
 
     print("Done.")
