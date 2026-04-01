@@ -119,6 +119,64 @@ def compute_curvature(sol, params, x):
 
     return kappa
 
+from scipy.integrate import simpson
+
+def theta_L(theta0, sol, params, nx=1000):
+    """
+    Compute theta_L for an array of theta_0 values.
+
+    Parameters
+    ----------
+    theta0  : 1-d array of initial angles
+    sol     : scipy.integrate.solve_bvp result
+    params  : dataclass with mu, gamma, v_web, beta, L
+    nx      : number of quadrature points for the integral
+
+    Returns
+    -------
+    thetaL  : 1-d array, same shape as theta0
+    """
+    p = params
+    x = np.linspace(0, p.L, nx)
+
+    # Evaluate BVP solution
+    y = sol.sol(x)
+    h    = y[0]
+    hp   = y[1]
+    hppp = y[3]
+
+    # h'''' from the ODE RHS
+    h_safe = np.where(np.abs(h) > 1e-8, h, 1e-8)
+    hpppp = (-hp * hppp
+             - (3 * p.mu / p.gamma)
+               * (p.v_evap + p.v_web * np.sin(p.beta) * hp)) / h_safe
+
+    # Integrand N(x) / D(x)
+    coeff = p.gamma / (2 * p.mu)
+    N = coeff * (hpppp * h**2 + 2 * h * hp * hppp)
+    D = p.v_web * np.sin(p.beta) + coeff * hppp * h**2
+
+    integrand = N / D
+    I = simpson(integrand, x=x)
+
+    # theta_L for each theta_0
+    T = np.arctanh(np.cos(2 * theta0)) + I
+    thetaL = 0.5 * np.arccos(np.tanh(T))
+
+    return thetaL
+
+def plot_curvature_top(sol, params, x):
+    kappa = compute_curvature(sol, params, x)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.plot(x, kappa, lw=2, color='tab:purple')
+    ax.set_xlabel("x (cm)")
+    ax.set_ylabel("κ (cm⁻¹)")
+    ax.set_title("Streamline Curvature at Top Surface")
+    fig.savefig("plot7_curvature_top.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print("Saved plot7_curvature_top.png")
+
+
 def plot_film_thickness(x, h, params):
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(x, h, lw=2)
@@ -220,6 +278,20 @@ def plot_streamplot(x_fine, u_x_bar_1d, params, top=False):
     plt.close(fig)
     print(fig_name)
 
+def plot_theta_L(sol, params):
+    theta0 = np.linspace(1e-3, np.pi / 2, 500)
+    thetaL = theta_L(theta0, sol, params)
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.plot(theta0, thetaL, lw=2, color='tab:blue')
+    ax.set_xlabel(r"$\theta_0$ (rad)")
+    ax.set_ylabel(r"$\theta_L$ (rad)")
+    ax.set_title(r"Contact Angle Evolution: $\theta_L$ vs $\theta_0$")
+    ax.set_xlim(0, np.pi / 2)
+    fig.savefig("plot8_thetaL.png", dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print("Saved plot8_thetaL.png")
+
 
 if __name__ == "__main__":
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -244,5 +316,10 @@ if __name__ == "__main__":
     u_x_top = params.v_web * np.sin(params.beta) + coeff * h_vals**2 * h_tprime
     plot_streamplot(x_fine, u_x_top, params, top=True)
     plot_x_velocity(x_fine, u_x_top, params, top=True)
+
+    x_pressure = x_fine[x_fine <= 0.99 * params.L]
+    plot_curvature_top(sol, params, x_pressure)
+
+    plot_theta_L(sol, params)
 
     print("Done.")
