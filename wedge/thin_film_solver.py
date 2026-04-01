@@ -6,12 +6,13 @@ import matplotlib.pyplot as plt
 
 @dataclass
 class FilmParams:
-    mu: float = 0.00386          # viscosity, poise = g/(cm·s)
-    gamma: float = 20.14         # surface tension, dyn/cm = g/s²
-    h0: float = 0.4              # initial film thickness, cm
-    v_web: float = 0.01          # web velocity, cm/s
+    # mu and gamma should be from the other sims, chloroform gamma, and mu from viscometer data
+    mu: float = .537          # viscosity, poise = g/(cm·s). # 100 * viscosity of chloroform
+    gamma: float = 27.1         # surface tension, dyn/cm = g/s² # chloroform
+    h0: float = 0.01              # initial film thickness, cm. # (50 microns-100 microns)
+    v_web: float = 0.0105          # web velocity, cm/s # (105 microns/s)
     beta: float = field(default_factory=lambda: np.radians(45))  # radians
-    L: float = 3.0               # domain length, cm
+    L: float = .1               # domain length, cm (maybe a few mm). 
     v_evap: float = field(init=False)
 
     def __post_init__(self):
@@ -22,7 +23,7 @@ def ode_system(x, y, params):
     p = params
     coeff = 3 * p.mu / p.gamma
     y0, y1, y2, y3 = y
-    h_safe = np.where(np.abs(y0) > 1e-12, y0, 1e-12)
+    h_safe = np.where(np.abs(y0) > 1e-8, y0, 1e-8)
     dy3 = (-y1 * y3 - coeff * (p.v_evap + p.v_web * np.sin(p.beta) * y1)) / h_safe
     return np.vstack([y1, y2, y3, dy3])
 
@@ -41,7 +42,7 @@ def boundary_conditions(ya, yb, params):
 
 def solve_bvp_problem(params):
     p = params
-    eps = 1e-6 * p.L
+    eps = 1e-3 * p.L
     x_mesh = np.linspace(0, p.L - eps, 500)
 
     # Initial guess: quadratic profile satisfying BCs 1, 2, 3
@@ -55,14 +56,14 @@ def solve_bvp_problem(params):
     bc_fn = lambda ya, yb: boundary_conditions(ya, yb, params)
 
     # Step 1: coarse solve to get a good initial guess
-    sol = solve_bvp(ode_fn, bc_fn, x_mesh, y_guess, tol=1e-3, max_nodes=50000)
+    sol = solve_bvp(ode_fn, bc_fn, x_mesh, y_guess, tol=1e-3, max_nodes=1_000_000)
     if not sol.success:
         print(f"WARNING: coarse solve_bvp did not converge: {sol.message}")
 
     # Step 2: refine from coarse solution
     # Note: h''''∝1/h diverges as h→0 at x=L, so tight tolerances require
     # exponentially many nodes there. tol=1e-3 is adequate for plotting.
-    sol2 = solve_bvp(ode_fn, bc_fn, sol.x, sol.y, tol=1e-5, max_nodes=200000)
+    sol2 = solve_bvp(ode_fn, bc_fn, sol.x, sol.y, tol=1e-5, max_nodes=2_000_000)
     if sol2.success:
         sol = sol2
         print("Refined solve succeeded.")
