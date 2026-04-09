@@ -119,9 +119,7 @@ def compute_curvature(sol, params, x):
 
     return kappa
 
-from scipy.integrate import simpson
-
-def theta_L(theta0, sol, params, nx=1000):
+def theta_L(theta0, sol, params):
     """
     Compute theta_L for an array of theta_0 values.
 
@@ -130,35 +128,27 @@ def theta_L(theta0, sol, params, nx=1000):
     theta0  : 1-d array of initial angles
     sol     : scipy.integrate.solve_bvp result
     params  : dataclass with mu, gamma, v_web, beta, L
-    nx      : number of quadrature points for the integral
 
     Returns
     -------
     thetaL  : 1-d array, same shape as theta0
     """
     p = params
-    x = np.linspace(0, p.L, nx)
+    coeff = p.gamma / (3 * p.mu) # 3 is for average, 2 is for top
 
-    # Evaluate BVP solution
-    y = sol.sol(x)
-    h    = y[0]
-    hp   = y[1]
-    hppp = y[3]
+    # Evaluate u(x) = v_web*sin(beta) + (gamma/2mu)*h'''*h^2 at endpoints
+    y0 = sol.sol(.01*p.L)
+    yL = sol.sol(.99*p.L)
 
-    # h'''' from the ODE RHS
-    h_safe = np.where(np.abs(h) > 1e-8, h, 1e-8)
-    hpppp = (-hp * hppp
-             - (3 * p.mu / p.gamma)
-               * (p.v_evap + p.v_web * np.sin(p.beta) * hp)) / h_safe
+    u0 = p.v_web * np.sin(p.beta) + coeff * y0[3] * y0[0]**2
+    uL = p.v_web * np.sin(p.beta) + coeff * yL[3] * yL[0]**2
 
-    # Integrand N(x) / D(x)
-    coeff = p.gamma / (2 * p.mu)
-    N = coeff * (hpppp * h**2 + 2 * h * hp * hppp)
-    D = p.v_web * np.sin(p.beta) + coeff * hppp * h**2
-
-    integrand = N / D
-    I = simpson(integrand, x=x)
-
+    I = np.log(np.abs(uL / u0))
+    
+    # Some prints to check some things
+    #print(f'u0: {u0}')
+    #print(f'uL: {uL}')
+    
     # theta_L for each theta_0
     T = np.arctanh(np.cos(2 * theta0)) + I
     thetaL = 0.5 * np.arccos(np.tanh(T))

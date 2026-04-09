@@ -48,7 +48,7 @@ NUM_PLAYOFF_BRACKETS = 4
 TEAMS_PER_PLAYOFF_BRACKET = 12  # = NUM_TEAMS / NUM_PLAYOFF_BRACKETS
 
 # Number of simulation trials (each trial fits ~724 params via optimization — may be slow)
-N_TRIALS = 50
+N_TRIALS = 500
 
 # Output directory for plots
 OUTPUT_DIR = "nats_sims_results"
