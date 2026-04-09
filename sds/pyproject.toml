@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sports-analyst"
+version = "0.1.0"
+description = "CLI sports data scientist powered by DeepSeek-R1"
+requires-python = ">=3.10"
+dependencies = [
+    "ollama>=0.3",
+    "pybaseball>=2.2",
+    "nba_api>=1.4",
+    "nfl_data_py>=0.3",
+    "nhl-api-py>=0.1",
+    "cfbd>=5.0",
+    "soccerdata>=1.7",
+    "sportsipy",
+    "cricpy",
+    "requests>=2.28",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "rich>=13.0",
+]
+
+[project.scripts]
+sports-analyst = "sports_analyst.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"sports_analyst" = ["api_docs/*.md"]
