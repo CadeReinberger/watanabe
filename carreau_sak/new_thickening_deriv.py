@@ -125,7 +125,7 @@ def compute_f4(alpha: float, f: np.ndarray, fp: np.ndarray, fpp: np.ndarray, fpp
 
 def plot_alpha_03():
     alpha = 0.1
-    L = 4000
+    L = 4000 # YOLO
     s = find_shooting_fpp0(alpha, L)
     sol = integrate_profile(alpha, s, 100, npts=6000, rtol=1e-12, atol=1e-14)
 
@@ -140,7 +140,7 @@ def plot_alpha_03():
     plt.loglog(x[mask], f[mask], lw=3.2, label=r"Numerical Solution") #alpha={alpha}")
     plt.loglog(x[mask], fasym[mask], "--", lw=3.0, label=r"Asymptotic")
     plt.xlabel(r"$\eta$")
-    plt.ylabel(r"$f(\eta)$")
+    plt.ylabel(r"$f_p$")
     # plt.title("New Solutiuon Asymptotic For Shear-Thinning Blasius")
     plt.legend()
     plt.tight_layout()
@@ -152,7 +152,7 @@ def plot_alpha_03():
 
 def plot_alpha_14_f4():
     alpha = 1.4
-    L = 30.0
+    L = 20.0
     s = find_shooting_fpp0(alpha, L)
     # sol = integrate_profile(alpha, s, .5 * L, npts=10000, rtol=.5*1e-7, atol=1e-9)
     sol = integrate_profile(alpha, s, .6 * L, npts=1000, rtol=2.5e-14, atol=1e-16)
@@ -167,7 +167,7 @@ def plot_alpha_14_f4():
     plt.figure(figsize=(8, 5.5))
     plt.plot(x, f4, lw=3, label=r"$f''''(x)$")
     plt.xlabel(r"$\eta$")
-    plt.ylabel(r"$f''''(\eta)$")
+    plt.ylabel(r"$f_p^{(4)}$")
     # plt.title("Singular Solution in Shear-Thickening Case for Power-Law Sakiadis")
     # plt.legend()
     plt.tight_layout()
@@ -178,7 +178,7 @@ def plot_alpha_14_f4():
 
 
 def main():
-    plot_alpha_03()
+    #plot_alpha_03()
     plot_alpha_14_f4()
 
 
